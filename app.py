@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify
 from PyPDF2 import PdfReader
-import PyPDF4
 
+from pdfminer.high_level import extract_text
 import re
 import pickle
-import fitz
+import os
+import tempfile
+from pdfminer.high_level import extract_text
+
 app = Flask(__name__)
 print("App running")
 # Load models
@@ -36,13 +39,6 @@ def job_recommendation(resume_text):
     resume_tfidf = tfidf_vectorizer_job_recommendation.transform([resume_text])
     recommended_job = rf_classifier_job_recommendation.predict(resume_tfidf)[0]
     return recommended_job
-
-def pdf_to_text(file):
-    reader = PdfReader(file)
-    text = ''
-    for page in range(len(reader.pages)):
-        text += reader.pages[page].extract_text()
-    return text
 
 # Resume parsing
 def extract_contact_number_from_resume(text):
@@ -201,12 +197,10 @@ def extract_name_from_resume(text):
     return name
 
 def pdf_to_text(file):
-    pdf_reader = PyPDF4.PdfFileReader(file)
-    text = ''
-    for page in range(pdf_reader.numPages):
-        page_obj = pdf_reader.getPage(page)
-        text += page_obj.extractText()
-    return text
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_file_path = os.path.join(tmp_dir, 'temp.pdf')
+        file.save(tmp_file_path)
+        return extract_text(tmp_file_path)
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -218,11 +212,9 @@ def upload_file():
     if file:
         text = pdf_to_text(file)
         text = cleanResume(text)
-        
         education=extract_education_from_resume(text)
-        extracted_skills=extract_skills_from_resume(text)
-        name=extract_name_from_resume(text)
-        return jsonify({text})
+        name= extract_name_from_resume(text)
+        return jsonify({"resume_text": text, "education":education})
 
 if __name__ == "__main__":
     app.run(debug=True)
