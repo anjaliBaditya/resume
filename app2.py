@@ -1,64 +1,39 @@
+from flask import Flask, request, jsonify
+import pdf2image
+import io
 import google.generativeai as genai
-from IPython.display import Image
 
+app = Flask(__name__)
 
-
-from google.colab import userdata
-
-GOOGLE_API_KEY = userdata.get("GOOGLE_API_KEY")
+GOOGLE_API_KEY ='AIzaSyAKoOr-E5A5YA6n78UMyXcytwKVV3Yf5_s'
 genai.configure(api_key=GOOGLE_API_KEY)
 
-
-Image(filename="res.png")
-
-sample_file = genai.upload_file(path="res.png", display_name="Sample drawing")
-
-print(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
-
-file = genai.get_file(name=sample_file.name)
-print(f"Retrieved file '{file.display_name}' as: {sample_file.uri}")
-
-import json
-import dataclasses
-import typing_extensions as typing
-
-model = genai.GenerativeModel("gemini-1.5-flash-latest",
-                              generation_config={"response_mime_type": "application/json"},
-                              system_instruction="You are a resume parser agent you will be provided a image of a resume and just give the details from the resume.")
-prompt = """Provide the name skills and languages from the image:
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    try:
+        file = request.files['file']
+        images = pdf2image.convert_from_bytes(file.read(), dpi=300)
+        uploaded_images = []
+        for idx, image in enumerate(images):
+            img_buffer = io.BytesIO()
+            image.save(img_buffer, format='PNG')
+            img_buffer.seek(0)
+            uploaded_image = genai.upload_file(file=img_buffer, display_name=f"Page {idx}")
+            uploaded_images.append(uploaded_image)
+        prompt = """Provide the name skills and languages from the image:
 
 response = {'name': str,
              'skills':list[skills],
              'languages':list[languages] }
 Return:response"""
-raw_response = model.generate_content([prompt , sample_file])
+        model = genai.GenerativeModel("gemini-1.5-flash-latest",
+                                      generation_config={"response_mime_type": "application/json"},
+                                      system_instruction="You are a resume parser agent you will be provided a image of a resume and just give the details from the resume.")
+        raw_response = model.generate_content([prompt] + uploaded_images)
+        response = json.loads(raw_response.text)
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-response = json.loads(raw_response.text)
-print(json.dumps(response, indent=4))
-
-genai.delete_file(sample_file.name)
-print(f"Deleted {sample_file.display_name}.")
-
-
-
-
-md_file = genai.upload_file(path="contrib.md", display_name="Contributors guide", mime_type="text/markdown")
-
-model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
-response = model.generate_content(
-    [
-        "What should I do before I start writing, when following these guidelines?",
-        md_file,
-    ]
-)
-print(response.text)
-
-
-
-cpp_file = genai.upload_file(
-    path="gemma.cpp", display_name="gemma.cpp", mime_type="text/plain"
-)
-
-model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
-response = model.generate_content(["What does this program do?", cpp_file])
-print(response.text)
+if __name__ == '__main__':
+    app.run(debug=True)
